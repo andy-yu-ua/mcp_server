@@ -1,30 +1,37 @@
-# server.py
+import uvicorn
+import yfinance as yf
 from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
-from starlette.routing import Mount, Route
-from starlette.responses import JSONResponse
-import uvicorn
-import os
+from starlette.routing import Mount
 
 mcp = FastMCP("weather-server")
 
-# Define your tool
+
 @mcp.tool()
-def get_weather(city: str) -> str:
-    return f"The weather in {city} is snowy."
+def get_current_stock_price(ticker):
+    """Get Current Stock Price for a given Ticker Symbol"""
+    return {"currency": "USD", "value": yf.Ticker(ticker).info["open"]}
 
-# Route for OpenAI to fetch tool list
-async def tool_list_endpoint(request):
-    return JSONResponse(mcp.tool_list())  # returns the JSON OpenAI expects
 
-# Build ASGI app
+@mcp.tool()
+def get_historical_stock_splits(ticker):
+    """Get list of historical stock splits"""
+    history = []
+    for timestamp, ratio in yf.Ticker(ticker).splits.to_dict().items():
+        history.append(
+            {
+                "date": timestamp.strftime("%A, %B %d, %Y") + f", {timestamp.tzname()}",
+                "ratio": ratio,
+            }
+        )
+    return {"total": len(history), "history": history}
+
+
 app = Starlette(
     routes=[
-        Mount("/", app=mcp.streamable_http_app()),        # MCP HTTP app for tool calls
-        Route("/.well-known/mcp.json", tool_list_endpoint)  # Tool list endpoint
+        Mount("/", app=mcp.sse_app()),
     ]
 )
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
